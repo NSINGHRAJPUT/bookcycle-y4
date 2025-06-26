@@ -1,7 +1,37 @@
 import { createClient } from "@supabase/supabase-js"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+/**
+ * Safely read Supabase env vars.
+ * In production you **must** set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
+ * (e.g. in Vercel’s dashboard). During local preview we fall back to
+ * localhost + dummy key so the app doesn’t crash.
+ */
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??
+  (process.env.NODE_ENV === "development"
+    ? "https://localhost:54321" // local supabase default
+    : "https://placeholder.supabase.co")
+
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? (process.env.NODE_ENV === "development" ? "public-anon-key" : "")
+
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  /* eslint-disable no-console */
+  console.warn(
+    "[Supabase] Environment variables missing. Using fallback values. " +
+      "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY " +
+      "to connect to your real project.",
+  )
+  /* eslint-enable no-console */
+}
+
+// Validate that we have a proper Supabase URL (not a PostgreSQL connection string)
+if (supabaseUrl.includes("postgresql://") || supabaseUrl.includes("@db.")) {
+  throw new Error(
+    "Invalid Supabase URL detected. Please use your Supabase project URL (https://your-project.supabase.co), " +
+      "not the database connection string. Check your NEXT_PUBLIC_SUPABASE_URL environment variable.",
+  )
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
