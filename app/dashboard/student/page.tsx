@@ -7,14 +7,12 @@ import { Badge } from "@/components/ui/badge"
 import { BookOpen, Award, Plus, ShoppingCart, Bell, LogOut } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { getCurrentUser, signOut } from "@/lib/auth"
-import { getAvailableBooks, getUserDonations, purchaseBook } from "@/lib/books"
-import type { User, Book } from "@/lib/supabase"
+import { getCurrentUser, signOut, getBooks, purchaseBook } from "@/lib/api"
 
 export default function StudentDashboard() {
-  const [user, setUser] = useState<User | null>(null)
-  const [availableBooks, setAvailableBooks] = useState<Book[]>([])
-  const [userDonations, setUserDonations] = useState<Book[]>([])
+  const [user, setUser] = useState<any>(null)
+  const [availableBooks, setAvailableBooks] = useState<any[]>([])
+  const [userDonations, setUserDonations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
@@ -24,20 +22,25 @@ export default function StudentDashboard() {
 
   const loadData = async () => {
     try {
-      const currentUser = await getCurrentUser()
-      if (!currentUser || currentUser.role !== "student") {
+      const { data: userData, error: userError } = await getCurrentUser()
+      if (userError || !userData?.user || userData.user.role !== "student") {
         router.push("/auth/login")
         return
       }
 
-      setUser(currentUser)
+      setUser(userData.user)
 
-      const [books, donations] = await Promise.all([getAvailableBooks(), getUserDonations(currentUser.id)])
+      // Load available books and user donations
+      const [booksResponse, donationsResponse] = await Promise.all([
+        getBooks({ status: "verified" }),
+        getBooks({ userId: userData.user._id }),
+      ])
 
-      setAvailableBooks(books || [])
-      setUserDonations(donations || [])
+      setAvailableBooks(booksResponse.data?.books || [])
+      setUserDonations(donationsResponse.data?.books || [])
     } catch (error) {
       console.error("Error loading data:", error)
+      router.push("/auth/login")
     } finally {
       setLoading(false)
     }
@@ -46,13 +49,12 @@ export default function StudentDashboard() {
   const handleLogout = async () => {
     try {
       await signOut()
-      router.push("/")
     } catch (error) {
       console.error("Logout error:", error)
     }
   }
 
-  const handlePurchase = async (book: Book) => {
+  const handlePurchase = async (book: any) => {
     if (!user) return
 
     if (user.reward_points < (book.points_price || 0)) {
@@ -61,7 +63,12 @@ export default function StudentDashboard() {
     }
 
     try {
-      await purchaseBook(book.id, user.id)
+      const { error } = await purchaseBook(book._id)
+      if (error) {
+        alert(`Purchase failed: ${error}`)
+        return
+      }
+
       alert(`Successfully purchased "${book.title}"!`)
       loadData() // Refresh data
     } catch (error: any) {
@@ -165,7 +172,7 @@ export default function StudentDashboard() {
               <CardDescription>Find verified books to purchase with your points</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" className="w-full">
+              <Button variant="outline" className="w-full bg-transparent">
                 Browse Marketplace
               </Button>
             </CardContent>
@@ -184,7 +191,7 @@ export default function StudentDashboard() {
             ) : (
               <div className="grid md:grid-cols-3 gap-4">
                 {availableBooks.slice(0, 6).map((book) => (
-                  <Card key={book.id} className="overflow-hidden">
+                  <Card key={book._id} className="overflow-hidden">
                     <div className="aspect-[3/4] bg-gray-100">
                       <img
                         src={book.images?.[0] || "/placeholder.svg?height=200&width=150"}
@@ -231,7 +238,7 @@ export default function StudentDashboard() {
             ) : (
               <div className="space-y-4">
                 {userDonations.map((donation) => (
-                  <div key={donation.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div key={donation._id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div>
                       <h3 className="font-semibold">{donation.title}</h3>
                       <p className="text-sm text-gray-600">

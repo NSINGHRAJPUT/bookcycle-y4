@@ -2,56 +2,65 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Recycle } from "lucide-react"
+import { BookOpen, ArrowLeft } from "lucide-react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
-import { signUp } from "@/lib/auth"
+import { useRouter } from "next/navigation"
+import { signUp } from "@/lib/api"
 
 export default function RegisterPage() {
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [role, setRole] = useState("")
-  const [institution, setInstitution] = useState("")
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    role: "",
+    institution: "",
+  })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
-  const searchParams = useSearchParams()
 
-  useEffect(() => {
-    const roleParam = searchParams.get("role")
-    if (roleParam) {
-      setRole(roleParam)
-    }
-  }, [searchParams])
-
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setLoading(true)
+    setError("")
 
     try {
-      const { user } = await signUp(email, password, {
-        name,
-        role: role as "student" | "manager",
-        institution: role === "manager" ? institution : undefined,
+      const { data, error } = await signUp({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        role: formData.role as "student" | "manager",
+        institution: formData.role === "manager" ? formData.institution : undefined,
       })
 
-      // Redirect based on role
-      switch (user.role) {
-        case "student":
-          router.push("/dashboard/student")
-          break
-        case "manager":
-          router.push("/dashboard/manager")
-          break
-        default:
-          router.push("/dashboard/student")
+      if (error) {
+        setError(error)
+        return
       }
-    } catch (error: any) {
-      alert(`Registration failed: ${error.message}`)
+
+      if (data) {
+        // Store token
+        localStorage.setItem("token", data.token)
+
+        // Redirect based on role
+        if (data.user.role === "student") {
+          router.push("/dashboard/student")
+        } else if (data.user.role === "manager") {
+          router.push("/dashboard/manager")
+        } else {
+          router.push("/dashboard/admin")
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || "Registration failed")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -59,22 +68,23 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Recycle className="h-8 w-8 text-green-600" />
-            <span className="text-2xl font-bold">BookCycle</span>
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <BookOpen className="h-8 w-8 text-green-600" />
+            <h1 className="text-2xl font-bold text-green-600">BookCycle</h1>
           </div>
           <CardTitle>Create Account</CardTitle>
-          <CardDescription>Join the book reuse community</CardDescription>
+          <CardDescription>Join the sustainable book sharing community</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleRegister} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
+                type="text"
                 placeholder="Enter your full name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
               />
             </div>
@@ -85,8 +95,8 @@ export default function RegisterPage() {
                 id="email"
                 type="email"
                 placeholder="Enter your email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 required
               />
             </div>
@@ -97,15 +107,15 @@ export default function RegisterPage() {
                 id="password"
                 type="password"
                 placeholder="Create a password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="role">Register As</Label>
-              <Select value={role} onValueChange={setRole} required>
+              <Label htmlFor="role">I am a</Label>
+              <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select your role" />
                 </SelectTrigger>
@@ -116,28 +126,40 @@ export default function RegisterPage() {
               </Select>
             </div>
 
-            {role === "manager" && (
+            {formData.role === "manager" && (
               <div className="space-y-2">
                 <Label htmlFor="institution">Institution Name</Label>
                 <Input
                   id="institution"
+                  type="text"
                   placeholder="Enter your institution name"
-                  value={institution}
-                  onChange={(e) => setInstitution(e.target.value)}
+                  value={formData.institution}
+                  onChange={(e) => setFormData({ ...formData, institution: e.target.value })}
                   required
                 />
               </div>
             )}
 
-            <Button type="submit" className="w-full">
-              Create Account
+            {error && <div className="text-red-600 text-sm">{error}</div>}
+
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
 
-          <div className="mt-4 text-center text-sm">
-            <span className="text-gray-600">Already have an account? </span>
-            <Link href="/auth/login" className="text-green-600 hover:underline">
-              Sign in
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600">
+              Already have an account?{" "}
+              <Link href="/auth/login" className="text-green-600 hover:underline">
+                Sign in
+              </Link>
+            </p>
+          </div>
+
+          <div className="mt-4">
+            <Link href="/" className="flex items-center justify-center gap-2 text-sm text-gray-600 hover:text-gray-800">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Home
             </Link>
           </div>
         </CardContent>

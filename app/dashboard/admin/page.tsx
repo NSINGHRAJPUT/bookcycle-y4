@@ -9,15 +9,13 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Users, BookOpen, Award, Search, LogOut, Bell, Download } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { getCurrentUser, signOut } from "@/lib/auth"
-import { supabase } from "@/lib/supabase"
-import type { User, Book } from "@/lib/supabase"
+import { getCurrentUser, signOut, getUsers, getBooks } from "@/lib/api"
 
 export default function AdminDashboard() {
-  const [user, setUser] = useState<User | null>(null)
-  const [students, setStudents] = useState<User[]>([])
-  const [managers, setManagers] = useState<User[]>([])
-  const [books, setBooks] = useState<Book[]>([])
+  const [user, setUser] = useState<any>(null)
+  const [students, setStudents] = useState<any[]>([])
+  const [managers, setManagers] = useState<any[]>([])
+  const [books, setBooks] = useState<any[]>([])
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalManagers: 0,
@@ -36,49 +34,45 @@ export default function AdminDashboard() {
 
   const loadData = async () => {
     try {
-      const currentUser = await getCurrentUser()
-      if (!currentUser || currentUser.role !== "admin") {
+      const { data: userData, error: userError } = await getCurrentUser()
+      if (userError || !userData?.user || userData.user.role !== "admin") {
         router.push("/auth/login")
         return
       }
 
-      setUser(currentUser)
+      setUser(userData.user)
 
       // Load all data
-      const [studentsData, managersData, booksData, transactionsData] = await Promise.all([
-        supabase.from("users").select("*").eq("role", "student").order("created_at", { ascending: false }),
-        supabase.from("users").select("*").eq("role", "manager").order("created_at", { ascending: false }),
-        supabase
-          .from("books")
-          .select(`
-          *,
-          donor:users!books_donor_id_fkey(name, email),
-          verifier:users!books_verifier_id_fkey(name, email),
-          buyer:users!books_buyer_id_fkey(name, email)
-        `)
-          .order("created_at", { ascending: false }),
-        supabase.from("transactions").select("*"),
+      const [studentsResponse, managersResponse, booksResponse] = await Promise.all([
+        getUsers("student"),
+        getUsers("manager"),
+        getBooks(),
       ])
 
-      setStudents(studentsData.data || [])
-      setManagers(managersData.data || [])
-      setBooks(booksData.data || [])
+      const studentsData = studentsResponse.data?.users || []
+      const managersData = managersResponse.data?.users || []
+      const booksData = booksResponse.data?.books || []
+
+      setStudents(studentsData)
+      setManagers(managersData)
+      setBooks(booksData)
 
       // Calculate stats
-      const totalRewardPoints = (studentsData.data || []).reduce((sum, student) => sum + student.reward_points, 0)
-      const donationTransactions = (transactionsData.data || []).filter((t) => t.type === "donation")
-      const purchaseTransactions = (transactionsData.data || []).filter((t) => t.type === "purchase")
+      const totalRewardPoints = studentsData.reduce((sum, student) => sum + student.reward_points, 0)
+      const verifiedBooks = booksData.filter((b) => b.status === "verified" || b.status === "sold")
+      const soldBooks = booksData.filter((b) => b.status === "sold")
 
       setStats({
-        totalStudents: studentsData.data?.length || 0,
-        totalManagers: managersData.data?.length || 0,
-        totalBooks: booksData.data?.length || 0,
-        totalTransactions: transactionsData.data?.length || 0,
-        rewardPointsDistributed: donationTransactions.reduce((sum, t) => sum + t.points_amount, 0),
-        rewardPointsUsed: purchaseTransactions.reduce((sum, t) => sum + t.points_amount, 0),
+        totalStudents: studentsData.length,
+        totalManagers: managersData.length,
+        totalBooks: booksData.length,
+        totalTransactions: verifiedBooks.length + soldBooks.length,
+        rewardPointsDistributed: verifiedBooks.reduce((sum, b) => sum + Math.floor(b.mrp * 0.4), 0),
+        rewardPointsUsed: soldBooks.reduce((sum, b) => sum + (b.points_price || 0), 0),
       })
     } catch (error) {
       console.error("Error loading data:", error)
+      router.push("/auth/login")
     } finally {
       setLoading(false)
     }
@@ -87,7 +81,6 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     try {
       await signOut()
-      router.push("/")
     } catch (error) {
       console.error("Logout error:", error)
     }
@@ -248,17 +241,25 @@ export default function AdminDashboard() {
               <CardTitle className="text-lg">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button variant="outline" className="w-full justify-start" onClick={() => handleDownloadReport("users")}>
+              <Button
+                variant="outline"
+                className="w-full justify-start bg-transparent"
+                onClick={() => handleDownloadReport("users")}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Download User Report
               </Button>
-              <Button variant="outline" className="w-full justify-start" onClick={() => handleDownloadReport("books")}>
+              <Button
+                variant="outline"
+                className="w-full justify-start bg-transparent"
+                onClick={() => handleDownloadReport("books")}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Download Book Report
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start"
+                className="w-full justify-start bg-transparent"
                 onClick={() => handleDownloadReport("transactions")}
               >
                 <Download className="h-4 w-4 mr-2" />
@@ -307,7 +308,7 @@ export default function AdminDashboard() {
                   </TableHeader>
                   <TableBody>
                     {filteredStudents.map((student) => (
-                      <TableRow key={student.id}>
+                      <TableRow key={student._id}>
                         <TableCell className="font-medium">{student.name}</TableCell>
                         <TableCell>{student.email}</TableCell>
                         <TableCell>
@@ -344,7 +345,7 @@ export default function AdminDashboard() {
                   </TableHeader>
                   <TableBody>
                     {filteredManagers.map((manager) => (
-                      <TableRow key={manager.id}>
+                      <TableRow key={manager._id}>
                         <TableCell className="font-medium">{manager.name}</TableCell>
                         <TableCell>{manager.email}</TableCell>
                         <TableCell>{manager.institution || "N/A"}</TableCell>
@@ -376,12 +377,11 @@ export default function AdminDashboard() {
                       <TableHead>MRP</TableHead>
                       <TableHead>Points Price</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Donor</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {books.slice(0, 20).map((book) => (
-                      <TableRow key={book.id}>
+                      <TableRow key={book._id}>
                         <TableCell className="font-medium">{book.title}</TableCell>
                         <TableCell>{book.author}</TableCell>
                         <TableCell>{book.subject}</TableCell>
@@ -402,7 +402,6 @@ export default function AdminDashboard() {
                             {book.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>{book.donor?.name || "Unknown"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

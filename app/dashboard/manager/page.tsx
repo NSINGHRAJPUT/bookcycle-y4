@@ -7,15 +7,12 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BookOpen, CheckCircle, XCircle, Clock, Users, LogOut, Bell } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { getCurrentUser, signOut } from "@/lib/auth"
-import { getPendingBooks, verifyBook } from "@/lib/books"
-import type { User, Book } from "@/lib/supabase"
-import { supabase } from "@/lib/supabase"
+import { getCurrentUser, signOut, getBooks, verifyBook } from "@/lib/api"
 
 export default function ManagerDashboard() {
-  const [user, setUser] = useState<User | null>(null)
-  const [pendingBooks, setPendingBooks] = useState<Book[]>([])
-  const [verifiedBooks, setVerifiedBooks] = useState<Book[]>([])
+  const [user, setUser] = useState<any>(null)
+  const [pendingBooks, setPendingBooks] = useState<any[]>([])
+  const [verifiedBooks, setVerifiedBooks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
@@ -25,31 +22,25 @@ export default function ManagerDashboard() {
 
   const loadData = async () => {
     try {
-      const currentUser = await getCurrentUser()
-      if (!currentUser || currentUser.role !== "manager") {
+      const { data: userData, error: userError } = await getCurrentUser()
+      if (userError || !userData?.user || userData.user.role !== "manager") {
         router.push("/auth/login")
         return
       }
 
-      setUser(currentUser)
+      setUser(userData.user)
 
-      const books = await getPendingBooks()
-      setPendingBooks(books || [])
+      // Load pending and verified books
+      const [pendingResponse, verifiedResponse] = await Promise.all([
+        getBooks({ status: "pending" }),
+        getBooks({ status: "verified" }),
+      ])
 
-      // Get verified books by this manager
-      const { data: verified } = await supabase
-        .from("books")
-        .select(`
-          *,
-          donor:users!books_donor_id_fkey(name, email)
-        `)
-        .eq("verifier_id", currentUser.id)
-        .in("status", ["verified", "sold"])
-        .order("updated_at", { ascending: false })
-
-      setVerifiedBooks(verified || [])
+      setPendingBooks(pendingResponse.data?.books || [])
+      setVerifiedBooks(verifiedResponse.data?.books || [])
     } catch (error) {
       console.error("Error loading data:", error)
+      router.push("/auth/login")
     } finally {
       setLoading(false)
     }
@@ -58,17 +49,19 @@ export default function ManagerDashboard() {
   const handleLogout = async () => {
     try {
       await signOut()
-      router.push("/")
     } catch (error) {
       console.error("Logout error:", error)
     }
   }
 
   const handleApprove = async (bookId: string) => {
-    if (!user) return
-
     try {
-      await verifyBook(bookId, user.id, true)
+      const { error } = await verifyBook(bookId, true)
+      if (error) {
+        alert(`Approval failed: ${error}`)
+        return
+      }
+
       alert("Book approved successfully!")
       loadData() // Refresh data
     } catch (error: any) {
@@ -77,10 +70,13 @@ export default function ManagerDashboard() {
   }
 
   const handleReject = async (bookId: string) => {
-    if (!user) return
-
     try {
-      await verifyBook(bookId, user.id, false)
+      const { error } = await verifyBook(bookId, false)
+      if (error) {
+        alert(`Rejection failed: ${error}`)
+        return
+      }
+
       alert("Book rejected.")
       loadData() // Refresh data
     } catch (error: any) {
@@ -189,7 +185,7 @@ export default function ManagerDashboard() {
               </Card>
             ) : (
               pendingBooks.map((book) => (
-                <Card key={book.id}>
+                <Card key={book._id}>
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div>
@@ -231,12 +227,6 @@ export default function ManagerDashboard() {
                           <h4 className="font-semibold mb-2">Student Information</h4>
                           <div className="space-y-1 text-sm">
                             <p>
-                              <span className="text-gray-600">Name:</span> {book.donor?.name}
-                            </p>
-                            <p>
-                              <span className="text-gray-600">Email:</span> {book.donor?.email}
-                            </p>
-                            <p>
                               <span className="text-gray-600">Submitted:</span>{" "}
                               {new Date(book.created_at).toLocaleDateString()}
                             </p>
@@ -268,11 +258,11 @@ export default function ManagerDashboard() {
                         </div>
 
                         <div className="flex gap-2">
-                          <Button onClick={() => handleApprove(book.id)} className="flex-1">
+                          <Button onClick={() => handleApprove(book._id)} className="flex-1">
                             <CheckCircle className="h-4 w-4 mr-2" />
                             Approve
                           </Button>
-                          <Button variant="destructive" onClick={() => handleReject(book.id)} className="flex-1">
+                          <Button variant="destructive" onClick={() => handleReject(book._id)} className="flex-1">
                             <XCircle className="h-4 w-4 mr-2" />
                             Reject
                           </Button>
@@ -297,11 +287,10 @@ export default function ManagerDashboard() {
                 ) : (
                   <div className="space-y-4">
                     {verifiedBooks.map((book) => (
-                      <div key={book.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div key={book._id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div>
                           <h3 className="font-semibold">{book.title}</h3>
                           <p className="text-sm text-gray-600">by {book.author}</p>
-                          <p className="text-xs text-gray-500">Donated by: {book.donor?.name}</p>
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="text-right">
