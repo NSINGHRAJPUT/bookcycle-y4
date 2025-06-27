@@ -1,82 +1,73 @@
-import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
+import type { NextRequest } from "next/server"
+import User, { type IUser } from "@/models/User"
 import connectDB from "./mongodb"
-import User, { type IUser } from "../models/User"
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-fallback-secret-key"
+const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key"
 
-export interface TokenPayload {
+export interface JWTPayload {
   userId: string
   email: string
   role: string
 }
 
-export async function hashPassword(password: string): Promise<string> {
-  const saltRounds = 12
-  return bcrypt.hash(password, saltRounds)
-}
+export function generateToken(user: IUser): string {
+  const payload: JWTPayload = {
+    userId: user._id,
+    email: user.email,
+    role: user.role,
+  }
 
-export async function comparePassword(password: string, hashedPassword: string): Promise<boolean> {
-  return bcrypt.compare(password, hashedPassword)
-}
-
-export function generateToken(payload: TokenPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" })
 }
 
-export function verifyToken(token: string): TokenPayload | null {
+export function verifyToken(token: string): JWTPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload
+    return jwt.verify(token, JWT_SECRET) as JWTPayload
   } catch (error) {
     return null
   }
 }
 
-export async function createUser(userData: {
-  name: string
-  email: string
-  password: string
-  role: "student" | "manager" | "admin"
-  institution?: string
-}): Promise<IUser> {
-  await connectDB()
+export async function getAuthUser(request: NextRequest): Promise<IUser | null> {
+  try {
+    const authHeader = request.headers.get("authorization")
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return null
+    }
 
-  // Check if user already exists
-  const existingUser = await User.findOne({ email: userData.email })
-  if (existingUser) {
-    throw new Error("User already exists")
-  }
+    const token = authHeader.substring(7)
+    const payload = verifyToken(token)
+    if (!payload) {
+      return null
+    }
 
-  // Hash password
-  const hashedPassword = await hashPassword(userData.password)
-
-  // Create user
-  const user = new User({
-    ...userData,
-    password: hashedPassword,
-    reward_points: 0,
-  })
-
-  return user.save()
-}
-
-export async function authenticateUser(email: string, password: string): Promise<IUser | null> {
-  await connectDB()
-
-  const user = await User.findOne({ email })
-  if (!user) {
+    await connectDB()
+    const user = await User.findById(payload.userId).select("-password")
+    return user
+  } catch (error) {
     return null
   }
-
-  const isValidPassword = await comparePassword(password, user.password)
-  if (!isValidPassword) {
-    return null
-  }
-
-  return user
 }
 
-export async function getUserById(userId: string): Promise<IUser | null> {
-  await connectDB()
-  return User.findById(userId).select("-password")
+export function requireAuth(allowedRoles?: string[]) {
+  return async (request: NextRequest): Promise<{ user: IUser } | Response> => {
+    const user = await getAuthUser(request)
+
+    if (!user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    if (allowedRoles && !allowedRoles.includes(user.role)) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    return { user }
+  }
 }

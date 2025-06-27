@@ -1,119 +1,133 @@
 import mongoose, { type Document, Schema } from "mongoose"
 
 export interface IBook extends Document {
+  _id: string
   title: string
   author: string
-  isbn?: string
+  isbn: string
   subject: string
-  mrp: number
   condition: "excellent" | "good" | "fair" | "poor"
+  mrp: number
+  pointsPrice: number
   description?: string
-  status: "pending" | "verified" | "rejected" | "sold"
-  points_price: number
-  donor_id: mongoose.Types.ObjectId
-  verifier_id?: mongoose.Types.ObjectId
-  buyer_id?: mongoose.Types.ObjectId
   images: string[]
-  created_at: Date
-  updated_at: Date
+  donorId: mongoose.Types.ObjectId
+  status: "pending" | "verified" | "sold" | "rejected"
+  verifiedBy?: mongoose.Types.ObjectId
+  verifiedAt?: Date
+  purchasedBy?: mongoose.Types.ObjectId
+  purchasedAt?: Date
+  createdAt: Date
+  updatedAt: Date
 }
 
-const BookSchema = new Schema<IBook>({
-  title: {
-    type: String,
-    required: [true, "Title is required"],
-    trim: true,
-    maxlength: [200, "Title cannot exceed 200 characters"],
-  },
-  author: {
-    type: String,
-    required: [true, "Author is required"],
-    trim: true,
-    maxlength: [100, "Author name cannot exceed 100 characters"],
-  },
-  isbn: {
-    type: String,
-    trim: true,
-    match: [/^(?:\d{9}[\dX]|\d{13})$/, "Please enter a valid ISBN"],
-  },
-  subject: {
-    type: String,
-    required: [true, "Subject is required"],
-    trim: true,
-    maxlength: [100, "Subject cannot exceed 100 characters"],
-  },
-  mrp: {
-    type: Number,
-    required: [true, "MRP is required"],
-    min: [1, "MRP must be at least 1"],
-  },
-  condition: {
-    type: String,
-    enum: ["excellent", "good", "fair", "poor"],
-    required: [true, "Condition is required"],
-  },
-  description: {
-    type: String,
-    trim: true,
-    maxlength: [1000, "Description cannot exceed 1000 characters"],
-  },
-  status: {
-    type: String,
-    enum: ["pending", "verified", "rejected", "sold"],
-    default: "pending",
-  },
-  points_price: {
-    type: Number,
-    required: true,
-    min: [1, "Points price must be at least 1"],
-  },
-  donor_id: {
-    type: Schema.Types.ObjectId,
-    ref: "User",
-    required: [true, "Donor ID is required"],
-  },
-  verifier_id: {
-    type: Schema.Types.ObjectId,
-    ref: "User",
-  },
-  buyer_id: {
-    type: Schema.Types.ObjectId,
-    ref: "User",
-  },
-  images: [
-    {
+const BookSchema = new Schema<IBook>(
+  {
+    title: {
       type: String,
+      required: [true, "Book title is required"],
       trim: true,
+      maxlength: [200, "Title cannot be more than 200 characters"],
     },
-  ],
-  created_at: {
-    type: Date,
-    default: Date.now,
+    author: {
+      type: String,
+      required: [true, "Author name is required"],
+      trim: true,
+      maxlength: [100, "Author name cannot be more than 100 characters"],
+    },
+    isbn: {
+      type: String,
+      required: [true, "ISBN is required"],
+      unique: true,
+      match: [
+        /^(?:ISBN(?:-1[03])?:? )?(?=[0-9X]{10}$|(?=(?:[0-9]+[- ]){3})[- 0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[- ]){4})[- 0-9]{17}$)(?:97[89][- ]?)?[0-9]{1,5}[- ]?[0-9]+[- ]?[0-9]+[- ]?[0-9X]$/,
+        "Please enter a valid ISBN",
+      ],
+    },
+    subject: {
+      type: String,
+      required: [true, "Subject is required"],
+      enum: [
+        "Mathematics",
+        "Science",
+        "English",
+        "History",
+        "Geography",
+        "Computer Science",
+        "Physics",
+        "Chemistry",
+        "Biology",
+        "Economics",
+        "Other",
+      ],
+    },
+    condition: {
+      type: String,
+      required: [true, "Book condition is required"],
+      enum: ["excellent", "good", "fair", "poor"],
+    },
+    mrp: {
+      type: Number,
+      required: [true, "MRP is required"],
+      min: [1, "MRP must be at least 1"],
+    },
+    pointsPrice: {
+      type: Number,
+      default: function () {
+        return Math.floor(this.mrp * 0.6) // 60% of MRP
+      },
+    },
+    description: {
+      type: String,
+      maxlength: [1000, "Description cannot be more than 1000 characters"],
+    },
+    images: [
+      {
+        type: String,
+        validate: {
+          validator: (v: string) => /^https?:\/\/.+\.(jpg|jpeg|png|webp)$/i.test(v),
+          message: "Please enter a valid image URL",
+        },
+      },
+    ],
+    donorId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "verified", "sold", "rejected"],
+      default: "pending",
+    },
+    verifiedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+    verifiedAt: Date,
+    purchasedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+    purchasedAt: Date,
   },
-  updated_at: {
-    type: Date,
-    default: Date.now,
+  {
+    timestamps: true,
   },
-})
+)
 
-// Update the updated_at field before saving
-BookSchema.pre("save", function (next) {
-  this.updated_at = new Date()
-  next()
-})
+// Indexes for faster queries
+BookSchema.index({ status: 1 })
+BookSchema.index({ subject: 1 })
+BookSchema.index({ donorId: 1 })
+BookSchema.index({ isbn: 1 })
 
-// Calculate points_price based on MRP before saving
+// Calculate points price before saving
 BookSchema.pre("save", function (next) {
-  if (this.isModified("mrp") && !this.isModified("points_price")) {
-    this.points_price = Math.floor(this.mrp * 0.6) // 60% of MRP
+  if (this.isModified("mrp")) {
+    this.pointsPrice = Math.floor(this.mrp * 0.6)
   }
   next()
 })
-
-// Create indexes
-BookSchema.index({ status: 1 })
-BookSchema.index({ donor_id: 1 })
-BookSchema.index({ subject: 1 })
-BookSchema.index({ created_at: -1 })
 
 export default mongoose.models.Book || mongoose.model<IBook>("Book", BookSchema)

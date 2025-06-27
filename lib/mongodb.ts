@@ -1,18 +1,27 @@
 import mongoose from "mongoose"
 
-if (!process.env.MONGODB_URI) {
-  throw new Error('Invalid/Missing environment variable: "MONGODB_URI"')
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/bookcycle"
+
+if (!MONGODB_URI) {
+  throw new Error("Please define the MONGODB_URI environment variable inside .env.local")
 }
 
-const uri = process.env.MONGODB_URI
-
-let cached = global.mongoose
-
-if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null }
+interface MongooseCache {
+  conn: typeof mongoose | null
+  promise: Promise<typeof mongoose> | null
 }
 
-async function connectDB() {
+declare global {
+  var myMongoose: MongooseCache | undefined
+}
+
+const cached: MongooseCache = global.myMongoose || { conn: null, promise: null }
+
+if (!global.myMongoose) {
+  global.myMongoose = cached
+}
+
+async function connectDB(): Promise<typeof mongoose> {
   if (cached.conn) {
     return cached.conn
   }
@@ -22,7 +31,7 @@ async function connectDB() {
       bufferCommands: false,
     }
 
-    cached.promise = mongoose.connect(uri, opts).then((mongoose) => {
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
       return mongoose
     })
   }
