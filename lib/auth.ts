@@ -11,30 +11,52 @@ export async function signUp(
   },
 ) {
   try {
-    // Create auth user
+    // Create auth user with metadata
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          name: userData.name,
+          role: userData.role,
+          institution: userData.institution,
+        },
+      },
     })
 
     if (authError) throw authError
 
     if (authData.user) {
-      // Create user profile
+      // The trigger will automatically create the user profile
+      // Wait a moment for the trigger to complete
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Get the created profile
       const { data: profileData, error: profileError } = await supabase
-        .from("users")
-        .insert({
-          id: authData.user.id,
-          name: userData.name,
-          email,
-          role: userData.role,
-          institution: userData.institution,
-          reward_points: userData.role === "student" ? 100 : 0, // Welcome bonus for students
-        })
-        .select()
+        .from("user_profiles")
+        .select("*")
+        .eq("id", authData.user.id)
         .single()
 
-      if (profileError) throw profileError
+      if (profileError) {
+        console.error("Profile fetch error:", profileError)
+        // If profile doesn't exist, create it manually
+        const { data: manualProfileData, error: manualProfileError } = await supabase
+          .from("user_profiles")
+          .insert({
+            id: authData.user.id,
+            name: userData.name,
+            email,
+            role: userData.role,
+            institution: userData.institution,
+            reward_points: userData.role === "student" ? 100 : 0,
+          })
+          .select()
+          .single()
+
+        if (manualProfileError) throw manualProfileError
+        return { user: manualProfileData, session: authData.session }
+      }
 
       return { user: profileData, session: authData.session }
     }
@@ -58,7 +80,7 @@ export async function signIn(email: string, password: string) {
     if (authData.user) {
       // Get user profile
       const { data: profileData, error: profileError } = await supabase
-        .from("users")
+        .from("user_profiles")
         .select("*")
         .eq("id", authData.user.id)
         .single()
@@ -88,7 +110,7 @@ export async function getCurrentUser(): Promise<User | null> {
 
     if (!authUser) return null
 
-    const { data: profileData, error } = await supabase.from("users").select("*").eq("id", authUser.id).single()
+    const { data: profileData, error } = await supabase.from("user_profiles").select("*").eq("id", authUser.id).single()
 
     if (error) throw error
 

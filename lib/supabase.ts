@@ -3,8 +3,8 @@ import { createClient } from "@supabase/supabase-js"
 /**
  * Safely read Supabase env vars.
  * In production you **must** set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
- * (e.g. in Vercel’s dashboard). During local preview we fall back to
- * localhost + dummy key so the app doesn’t crash.
+ * (e.g. in Vercel's dashboard). During local preview we fall back to
+ * localhost + dummy key so the app doesn't crash.
  */
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ??
@@ -35,7 +35,7 @@ if (supabaseUrl.includes("postgresql://") || supabaseUrl.includes("@db.")) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// Database types
+// Database types - Updated to match new schema
 export interface User {
   id: string
   name: string
