@@ -1,140 +1,145 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || ""
-
+// API client for BookCycle platform
 class ApiClient {
-  private getAuthHeaders() {
-    const token = localStorage.getItem("token")
-    return {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
+  private baseUrl: string
+  private token: string | null = null
+
+  constructor() {
+    this.baseUrl = process.env.NEXT_PUBLIC_API_URL || ""
+    if (typeof window !== "undefined") {
+      this.token = localStorage.getItem("token")
     }
   }
 
-  private async handleResponse(response: Response) {
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: "Network error" }))
-      throw new Error(error.error || `HTTP ${response.status}`)
+  private async request(endpoint: string, options: RequestInit = {}) {
+    const url = `${this.baseUrl}${endpoint}`
+    const config: RequestInit = {
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.token && { Authorization: `Bearer ${this.token}` }),
+        ...options.headers,
+      },
+      ...options,
     }
-    return response.json()
+
+    try {
+      const response = await fetch(url, config)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "An error occurred")
+      }
+
+      return data
+    } catch (error) {
+      console.error("API request failed:", error)
+      throw error
+    }
   }
 
-  // Auth endpoints
-  async register(userData: {
+  // Auth methods
+  async signUp(userData: {
     name: string
     email: string
     password: string
-    role: string
-    institution?: string
+    role: "student" | "manager" | "admin"
+    studentId?: string
   }) {
-    const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+    const data = await this.request("/api/auth/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(userData),
     })
-    return this.handleResponse(response)
+
+    if (data.token) {
+      this.token = data.token
+      if (typeof window !== "undefined") {
+        localStorage.setItem("token", data.token)
+      }
+    }
+
+    return data
   }
 
-  async login(credentials: { email: string; password: string }) {
-    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+  async signIn(credentials: { email: string; password: string }) {
+    const data = await this.request("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(credentials),
     })
-    return this.handleResponse(response)
+
+    if (data.token) {
+      this.token = data.token
+      if (typeof window !== "undefined") {
+        localStorage.setItem("token", data.token)
+      }
+    }
+
+    return data
   }
 
   async getCurrentUser() {
-    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-      headers: this.getAuthHeaders(),
-    })
-    return this.handleResponse(response)
+    return this.request("/api/auth/me")
   }
 
-  // Book endpoints
-  async getBooks(params?: { status?: string; userId?: string }) {
-    const searchParams = new URLSearchParams()
-    if (params?.status) searchParams.append("status", params.status)
-    if (params?.userId) searchParams.append("userId", params.userId)
+  signOut() {
+    this.token = null
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token")
+    }
+  }
 
-    const response = await fetch(`${API_BASE_URL}/api/books?${searchParams}`, {
-      headers: this.getAuthHeaders(),
-    })
-    return this.handleResponse(response)
+  // User methods
+  async getUsers() {
+    return this.request("/api/users")
+  }
+
+  // Book methods
+  async getBooks() {
+    return this.request("/api/books")
   }
 
   async createBook(bookData: {
     title: string
     author: string
-    isbn?: string
+    isbn: string
+    condition: "excellent" | "good" | "fair"
     subject: string
     mrp: number
-    condition: string
     description?: string
     images?: string[]
   }) {
-    const response = await fetch(`${API_BASE_URL}/api/books`, {
+    return this.request("/api/books", {
       method: "POST",
-      headers: this.getAuthHeaders(),
       body: JSON.stringify(bookData),
     })
-    return this.handleResponse(response)
   }
 
-  async verifyBook(bookId: string, approved: boolean) {
-    const response = await fetch(`${API_BASE_URL}/api/books/${bookId}/verify`, {
+  async verifyBook(bookId: string, status: "verified" | "rejected", rejectionReason?: string) {
+    return this.request(`/api/books/${bookId}/verify`, {
       method: "POST",
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify({ approved }),
+      body: JSON.stringify({ status, rejectionReason }),
     })
-    return this.handleResponse(response)
   }
 
   async purchaseBook(bookId: string) {
-    const response = await fetch(`${API_BASE_URL}/api/books/${bookId}/purchase`, {
+    return this.request(`/api/books/${bookId}/purchase`, {
       method: "POST",
-      headers: this.getAuthHeaders(),
     })
-    return this.handleResponse(response)
-  }
-
-  // User endpoints
-  async getUsers(role?: string) {
-    const searchParams = new URLSearchParams()
-    if (role) searchParams.append("role", role)
-
-    const response = await fetch(`${API_BASE_URL}/api/users?${searchParams}`, {
-      headers: this.getAuthHeaders(),
-    })
-    return this.handleResponse(response)
   }
 }
 
-export const api = new ApiClient()
+// Create a singleton instance
+const apiClient = new ApiClient()
 
-// ------------------------
-//  Named helper functions
-// ------------------------
+// Named exports for compatibility
+export const signUp = (userData: Parameters<ApiClient["signUp"]>[0]) => apiClient.signUp(userData)
+export const signIn = (credentials: Parameters<ApiClient["signIn"]>[0]) => apiClient.signIn(credentials)
+export const getCurrentUser = () => apiClient.getCurrentUser()
+export const signOut = () => apiClient.signOut()
+export const getUsers = () => apiClient.getUsers()
+export const getBooks = () => apiClient.getBooks()
+export const createBook = (bookData: Parameters<ApiClient["createBook"]>[0]) => apiClient.createBook(bookData)
+export const verifyBook = (bookId: string, status: "verified" | "rejected", rejectionReason?: string) =>
+  apiClient.verifyBook(bookId, status, rejectionReason)
+export const purchaseBook = (bookId: string) => apiClient.purchaseBook(bookId)
 
-/**
- * Auth helpers
- */
-export const signUp = api.register.bind(api)
-export const signIn = api.login.bind(api)
-export const getCurrentUser = api.getCurrentUser.bind(api)
-export function signOut() {
-  localStorage.removeItem("token")
-  // Optional: redirect to home/login
-  if (typeof window !== "undefined") window.location.href = "/"
-}
-
-/**
- * User helpers
- */
-export const getUsers = api.getUsers.bind(api)
-
-/**
- * Book helpers
- */
-export const getBooks = api.getBooks.bind(api)
-export const createBook = api.createBook.bind(api)
-export const verifyBook = api.verifyBook.bind(api)
-export const purchaseBook = api.purchaseBook.bind(api)
+// Default export
+export default apiClient
